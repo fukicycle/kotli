@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Kotli.Application/Kotli.Application.csproj" />
+    <Project Path="src/Kotli.Cli/Kotli.Cli.csproj" />
+    <Project Path="src/Kotli.Domain/Kotli.Domain.csproj" />
+    <Project Path="src/Kotli.Generators/Kotli.Generators.csproj" />
+    <Project Path="src/Kotli.Infrastructure/Kotli.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Kotli.Tests/Kotli.Tests.csproj" />
+  </Folder>
+</Solution>

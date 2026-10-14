@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Test & 100% Coverage Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build solution
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run tests with XPlat Code Coverage
+        run: dotnet test --configuration Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Verify 100% Line & Branch Coverage
+        shell: bash
+        run: |
+          python3 - << 'EOF'
+          import glob, sys, xml.etree.ElementTree as ET
+
+          files = glob.glob("./TestResults/**/coverage.cobertura.xml", recursive=True)
+          if not files:
+              print("Error: coverage.cobertura.xml not found.")
+              sys.exit(1)
+
+          tree = ET.parse(files[0])
+          root = tree.getroot()
+          overall_line = float(root.attrib.get("line-rate", "0"))
+          overall_branch = float(root.attrib.get("branch-rate", "0"))
+          print(f"Overall Coverage -> line-rate: {overall_line:.4f}, branch-rate: {overall_branch:.4f}")
+
+          failed = False
+          for pkg in root.findall(".//package"):
+              name = pkg.attrib["name"]
+              lr = float(pkg.attrib["line-rate"])
+              br = float(pkg.attrib["branch-rate"])
+              print(f"  Package: {name} | line-rate: {lr:.4f} | branch-rate: {br:.4f}")
+              if lr < 1.0 or br < 1.0:
+                  failed = True
+                  for cls in pkg.findall(".//class"):
+                      clr = float(cls.attrib["line-rate"])
+                      cbr = float(cls.attrib["branch-rate"])
+                      if clr < 1.0 or cbr < 1.0:
+                          print(f"    Uncovered Class: {cls.attrib['name']} (line-rate={clr}, branch-rate={cbr})")
+
+          if failed or overall_line < 1.0 or overall_branch < 1.0:
+              print("Error: Code coverage dropped below 100%.")
+              sys.exit(1)
+
+          print("Success: 100% line and branch coverage verified!")
+          EOF
+
+  cross-platform-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build solution
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test --configuration Release --no-build --verbosity normal

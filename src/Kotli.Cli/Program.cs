@@ -27,6 +27,8 @@ class Program
         RenderWelcomeHeader();
 
         // 1. Setup DI / Dependencies
+        var session = new ChatSession();
+
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         var ollamaClient = new HttpOllamaClient(httpClient, "http://localhost:11434");
 
@@ -35,7 +37,8 @@ class Program
         var webSearchTool = new StubWebSearchTool();
         var searchTool = new LocalSearchTool();
         var workspaceProvider = new GitDiffProvider();
-        var memoryStore = new MarkdownMemoryStore();
+        var memoryStore = new MarkdownMemoryStore(session.SessionId);
+        var commandTool = new LocalCommandTool();
 
         bool isStatusLineActive = false;
         void ClearInlineStatusLine()
@@ -81,6 +84,7 @@ class Program
             workspaceProvider,
             searchTool,
             memoryStore,
+            commandTool,
             approvalService);
 
         // 10 turns max history, 8192 token limit
@@ -95,7 +99,6 @@ class Program
             readTool,
             maxToolLoops: 15);
 
-        var session = new ChatSession();
         string modelName = "";
 
         // 2. Fetch Models once with Spinner
@@ -125,8 +128,11 @@ class Program
         AnsiConsole.MarkupLine("[grey]ヒント: '/' でコマンド補完、'@' でファイル添付補完が利用できます。推論中の Ctrl+C で応答を中断します。[/]");
         AnsiConsole.WriteLine();
 
-        // Setup PrettyPrompt with persistent history and completions
-        var kotliDir = Path.Combine(Directory.GetCurrentDirectory(), ".kotli");
+        // Setup PrettyPrompt with persistent history and completions under ~/.kotli/<SessionId>/
+        var kotliDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".kotli",
+            session.SessionId);
         Directory.CreateDirectory(kotliDir);
         var historyFile = Path.Combine(kotliDir, "history");
 
@@ -308,7 +314,7 @@ class Program
         table.AddRow("[cyan]/help[/]", "このヘルプ一覧を表示します");
         table.AddRow("[cyan]/model[/]", "使用するOllamaモデルを切り替えます");
         table.AddRow("[cyan]/clear[/]", "画面と現在の会話セッション履歴をクリアします");
-        table.AddRow("[cyan]/memory[/]", "永続メモリ (.kotli/MEMORY.md) の一覧表示、または `/memory add <Key> <Content>` で追加します");
+        table.AddRow("[cyan]/memory[/]", "セッションメモリ (~/.kotli/<セッションID>/MEMORY.md) の一覧表示、または `/memory add <Key> <Content>` で追加します");
         table.AddRow("[cyan]/diff[/]", "現在のワークスペースの未コミット変更 (git diff) を表示します");
         table.AddRow("[cyan]/exit[/]", "Kotli CLI を終了します");
         table.AddRow("[yellow]@path/to/file[/]", "指定したファイルをプロンプトに自動添付してAIに送信します");
@@ -334,14 +340,14 @@ class Program
         var items = (await memoryStore.LoadAllAsync()).ToList();
         if (items.Count == 0)
         {
-            AnsiConsole.MarkupLine("[grey]保存されている永続メモリはありません。`/memory add <キー> <内容>` で追加できます。[/]");
+            AnsiConsole.MarkupLine("[grey]保存されているメモリはありません。`/memory add <キー> <内容>` で追加できます。[/]");
             AnsiConsole.WriteLine();
             return;
         }
 
         var table = new Table()
             .Border(TableBorder.Rounded)
-            .Title("[bold yellow].kotli/MEMORY.md[/]")
+            .Title($"[bold yellow]~/.kotli/{Markup.Escape(memoryStore.SessionId)}/MEMORY.md[/]")
             .AddColumn("[bold cyan]キー[/]")
             .AddColumn("[bold white]内容[/]");
 

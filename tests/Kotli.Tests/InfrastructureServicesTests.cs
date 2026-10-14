@@ -48,11 +48,16 @@ public class InfrastructureServicesTests : IDisposable
     [Fact]
     public async Task MarkdownMemoryStoreがメモリの保存と上書きと削除およびエラーハンドリングを正しく行うこと()
     {
-        // デフォルトコンストラクタのカバレッジ確認
-        _ = new MarkdownMemoryStore();
+        // デフォルトコンストラクタが ~/.kotli/<SessionId>/MEMORY.md を指し、リポジトリを汚染しないことの確認
+        var defaultStore = new MarkdownMemoryStore();
+        Assert.NotEmpty(defaultStore.SessionId);
+        var expectedHomeKotli = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".kotli", defaultStore.SessionId, "MEMORY.md");
+        Assert.Equal(expectedHomeKotli, defaultStore.FilePath);
 
-        var memDir = Path.Combine(_tempDir, "mem_store");
-        var store = new MarkdownMemoryStore(memDir);
+        var memRootDir = Path.Combine(_tempDir, "kotli_home");
+        var store = new MarkdownMemoryStore("session-123", memRootDir);
+        Assert.Equal("session-123", store.SessionId);
+        Assert.Equal(Path.Combine(memRootDir, "session-123", "MEMORY.md"), store.FilePath);
 
         // 1. ファイル未存在時は空を返すこと
         Assert.Empty(await store.LoadAllAsync());
@@ -78,21 +83,22 @@ public class InfrastructureServicesTests : IDisposable
 
         // 4. SaveMemoryToolAsync（空キーエラー・nullコンテンツ許容・正常保存）
         Assert.Contains("[エラー] メモリのキー名が指定されていません", await store.SaveMemoryToolAsync("   ", "val"));
-        Assert.Contains("[成功]", await store.SaveMemoryToolAsync("ToolKey", null!));
+        var saveToolMsg = await store.SaveMemoryToolAsync("ToolKey", null!);
+        Assert.Contains("[成功]", saveToolMsg);
+        Assert.Contains("~/.kotli/session-123/MEMORY.md", saveToolMsg);
 
         // 5. 読み込み権限がない場合の LoadAllAsync 例外キャッチ分岐
         if (!OperatingSystem.IsWindows())
         {
-            var memFile = Path.Combine(memDir, "MEMORY.md");
-            File.SetUnixFileMode(memFile, UnixFileMode.None);
+            File.SetUnixFileMode(store.FilePath, UnixFileMode.None);
             Assert.Empty(await store.LoadAllAsync());
-            File.SetUnixFileMode(memFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.SetUnixFileMode(store.FilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
 
         // 6. MEMORY.mdと同名のディレクトリが存在する場合の SaveMemoryToolAsync 例外キャッチ分岐
-        var brokenDir = Path.Combine(_tempDir, "broken_mem");
-        Directory.CreateDirectory(Path.Combine(brokenDir, "MEMORY.md"));
-        var brokenStore = new MarkdownMemoryStore(brokenDir);
+        var brokenRootDir = Path.Combine(_tempDir, "broken_mem");
+        Directory.CreateDirectory(Path.Combine(brokenRootDir, "broken-session", "MEMORY.md"));
+        var brokenStore = new MarkdownMemoryStore("broken-session", brokenRootDir);
         var failResult = await brokenStore.SaveMemoryToolAsync("key", "value");
         Assert.Contains("[エラー] メモリの保存に失敗しました", failResult);
     }

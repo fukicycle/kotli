@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Kotli.Domain.Models;
@@ -6,7 +7,16 @@ public class ChatSession
 {
     private readonly List<ChatMessage> _messages = new();
 
+    public string SessionId { get; }
+
     public IReadOnlyList<ChatMessage> Messages => _messages;
+
+    public ChatSession(string? sessionId = null)
+    {
+        SessionId = string.IsNullOrWhiteSpace(sessionId)
+            ? Guid.NewGuid().ToString("N")
+            : sessionId.Trim();
+    }
 
     public void AddMessage(ChatMessage message)
     {

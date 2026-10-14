@@ -1,0 +1,107 @@
+name: CD / Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Publish (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+            bin: kotli
+          - rid: linux-arm64
+            os: ubuntu-latest
+            bin: kotli
+          - rid: osx-x64
+            os: macos-latest
+            bin: kotli
+          - rid: osx-arm64
+            os: macos-latest
+            bin: kotli
+          - rid: win-x64
+            os: windows-latest
+            bin: kotli.exe
+          - rid: win-arm64
+            os: windows-latest
+            bin: kotli.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish single-file executable (${{ matrix.rid }})
+        run: |
+          dotnet publish src/Kotli.Cli/Kotli.Cli.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=None \
+            -p:DebugSymbols=false \
+            --output ./dist/${{ matrix.rid }}
+
+      - name: Package archive (Unix/macOS/Windows tar.gz & zip)
+        shell: bash
+        run: |
+          mkdir -p ./artifacts
+          cd ./dist/${{ matrix.rid }}
+          chmod +x "${{ matrix.bin }}" || true
+          tar -czf "../../artifacts/kotli-${{ matrix.rid }}.tar.gz" "${{ matrix.bin }}"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            powershell -NoProfile -Command "Compress-Archive -Path '${{ matrix.bin }}' -DestinationPath '../../artifacts/kotli-${{ matrix.rid }}.zip' -Force"
+          fi
+
+      - name: Upload artifact (${{ matrix.rid }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotli-${{ matrix.rid }}
+          path: ./artifacts/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build-binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release-assets
+          merge-multiple: true
+
+      - name: Copy installer script and generate SHA-256 checksums
+        shell: bash
+        run: |
+          cp ./install.sh ./release-assets/install.sh
+          cd ./release-assets
+          sha256sum kotli-* install.sh > checksums.txt
+          cat checksums.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

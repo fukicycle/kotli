@@ -70,9 +70,10 @@ public class ConsoleToolApprovalService : IToolApprovalService
             markupBuilder.AppendLine($"[grey]引数: {Markup.Escape(toolCall.ArgumentsJson)}[/]");
         }
 
+        var isFileDiff = !string.IsNullOrWhiteSpace(diffPreview);
         var panel = new Panel(new Markup(markupBuilder.ToString().TrimEnd()))
         {
-            Header = new PanelHeader("[bold yellow]⚠ ファイル変更の確認[/]"),
+            Header = new PanelHeader(isFileDiff ? "[bold yellow]⚠ ファイル変更の確認[/]" : "[bold yellow]⚠ ツール実行の確認[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Yellow),
             Padding = new Padding(1, 0, 1, 0)
@@ -82,11 +83,11 @@ public class ConsoleToolApprovalService : IToolApprovalService
 
         const string allowOnceChoice = "✔ 許可する (今回のみ)";
         const string allowAlwaysChoice = "✔✔ セッション中は常に許可する";
-        const string rejectChoice = "✖ 拒否する (変更をキャンセル)";
+        const string rejectChoice = "✖ 拒否する (実行をキャンセル)";
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
-                .Title("[yellow]この変更を適用しますか？[/]")
+                .Title(isFileDiff ? "[yellow]この変更を適用しますか？[/]" : "[yellow]このツールを実行しますか？[/]")
                 .HighlightStyle(new Style(Color.Cyan1))
                 .AddChoices(allowOnceChoice, allowAlwaysChoice, rejectChoice));
 

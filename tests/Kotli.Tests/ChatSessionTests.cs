@@ -41,6 +41,11 @@ public class ChatSessionTests
     public void メッセージの追加と履歴の読み込みおよびクリアが正しく動作すること()
     {
         var session = new ChatSession();
+        Assert.False(string.IsNullOrWhiteSpace(session.SessionId));
+
+        var customSession = new ChatSession("custom-session-id");
+        Assert.Equal("custom-session-id", customSession.SessionId);
+
         session.AddMessage("user", "こんにちは");
         Assert.Single(session.Messages);
 

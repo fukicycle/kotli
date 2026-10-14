@@ -253,7 +253,7 @@ public class ToolRouterGenerator : IIncrementalGenerator
     {
         // Order interfaces so core 4 come first, then known optional ones, then any others sorted by name
         var coreInterfaces = new[] { "IReadTool", "IWriteTool", "IWebSearchTool", "IWorkspaceProvider" };
-        var preferredOrder = new[] { "IReadTool", "IWriteTool", "IWebSearchTool", "IWorkspaceProvider", "ISearchTool", "IMemoryStore" };
+        var preferredOrder = new[] { "IReadTool", "IWriteTool", "IWebSearchTool", "IWorkspaceProvider", "ISearchTool", "IMemoryStore", "ICommandTool" };
         var discoveredInterfaces = tools.Select(t => t.InterfaceName).Distinct().ToList();
 
         var orderedInterfaces = preferredOrder

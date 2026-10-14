@@ -288,6 +288,63 @@ public class LocalToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task コマンド実行ツールが標準出力とエラー出力およびタイムアウトやディレクトリ制限を正しく処理すること()
+    {
+        // デフォルトコンストラクタのカバレッジ確認
+        _ = new LocalCommandTool();
+
+        var cmdTool = new LocalCommandTool(_tempWorkspace, TimeSpan.FromSeconds(5), maxOutputChars: 50);
+        var subDir = Path.Combine(_tempWorkspace, "sub");
+        Directory.CreateDirectory(subDir);
+
+        // 1. 正常なコマンド実行（標準出力）
+        var okResult = await cmdTool.ExecuteCommandAsync("echo hello_kotli");
+        Assert.Contains("[成功] コマンド終了コード: 0", okResult);
+        Assert.Contains("--- 標準出力 ---", okResult);
+        Assert.Contains("hello_kotli", okResult);
+
+        // 2. 作業ディレクトリ（相対パス）指定
+        await File.WriteAllTextAsync(Path.Combine(subDir, "subfile.txt"), "in_sub");
+        var subDirResult = await cmdTool.ExecuteCommandAsync(
+            OperatingSystem.IsWindows() ? "dir /b" : "ls",
+            "sub");
+        Assert.Contains("subfile.txt", subDirResult);
+
+        // 3. 標準エラー出力および非ゼロ終了コード
+        var failResult = await cmdTool.ExecuteCommandAsync("echo err_msg >&2 && exit 3");
+        Assert.Contains("[失敗] コマンド終了コード: 3", failResult);
+        Assert.Contains("--- 標準エラー出力 ---", failResult);
+        Assert.Contains("err_msg", failResult);
+
+        // 4. 出力なしのコマンド
+        var silentResult = await cmdTool.ExecuteCommandAsync(OperatingSystem.IsWindows() ? "rem" : "true");
+        Assert.Contains("(出力なし)", silentResult);
+
+        // 5. 長い出力の切り詰め（maxOutputChars: 50）
+        var longOutputResult = await cmdTool.ExecuteCommandAsync("echo 123456789012345678901234567890123456789012345678901234567890");
+        Assert.Contains("出力が上限 50 文字を超えたため省略されました", longOutputResult);
+
+        // 6. 空コマンド・ワークスペース外ディレクトリ・存在しないディレクトリ
+        Assert.Contains("[エラー] 実行するコマンドが空です", await cmdTool.ExecuteCommandAsync("   "));
+        Assert.Contains("[エラー] アクセスが拒否されました", await cmdTool.ExecuteCommandAsync("echo hi", "../outside"));
+        Assert.Contains("[エラー] 作業ディレクトリが見つかりません", await cmdTool.ExecuteCommandAsync("echo hi", "no_such_dir"));
+
+        // 7. タイムアウト検証
+        var shortTimeoutTool = new LocalCommandTool(_tempWorkspace, TimeSpan.FromMilliseconds(100));
+        var timeoutCmd = OperatingSystem.IsWindows() ? "ping -n 5 127.0.0.1" : "sleep 2";
+        var timeoutResult = await shortTimeoutTool.ExecuteCommandAsync(timeoutCmd);
+        Assert.Contains("タイムアウトしました", timeoutResult);
+
+        // 8. プロセス起動失敗（存在しないシェル実行ファイル指定）の検証
+        var invalidShellTool = new LocalCommandTool(
+            _tempWorkspace,
+            shellExecutable: "/non_existent_shell_bin_kotli",
+            shellSwitch: "-c");
+        var startErrorResult = await invalidShellTool.ExecuteCommandAsync("echo hi");
+        Assert.Contains("[エラー] コマンドの起動に失敗しました:", startErrorResult);
+    }
+
+    [Fact]
     public async Task 自動生成されたToolExecutionRouterが全ツール呼び出しと承認フローおよび例外処理を正しくルーティングすること()
     {
         var readTool = new LocalReadTool(_tempWorkspace);
@@ -295,7 +352,8 @@ public class LocalToolsTests : IDisposable
         var webSearch = new StubWebSearchTool();
         var workspace = new GitDiffProvider(_tempWorkspace);
         var searchTool = new LocalSearchTool(_tempWorkspace);
-        var memoryStore = new MarkdownMemoryStore(Path.Combine(_tempWorkspace, ".kotli"));
+        var memoryStore = new MarkdownMemoryStore("test-session", Path.Combine(_tempWorkspace, ".kotli"));
+        var commandTool = new LocalCommandTool(_tempWorkspace);
 
         // 1. 必須依存関係のnullチェック検証
         Assert.Throws<ArgumentNullException>(() => new ToolExecutionRouter(null!, writeTool, webSearch, workspace));
@@ -303,8 +361,8 @@ public class LocalToolsTests : IDisposable
         Assert.Throws<ArgumentNullException>(() => new ToolExecutionRouter(readTool, writeTool, null!, workspace));
         Assert.Throws<ArgumentNullException>(() => new ToolExecutionRouter(readTool, writeTool, webSearch, null!));
 
-        // 2. オプションの検索・メモリツールがnullの場合の分岐検証
-        var minimalRouter = new ToolExecutionRouter(readTool, writeTool, webSearch, workspace, searchTool: null, memoryStore: null, approvalService: null);
+        // 2. オプションの検索・メモリ・コマンドツールがnullの場合の分岐検証
+        var minimalRouter = new ToolExecutionRouter(readTool, writeTool, webSearch, workspace, searchTool: null, memoryStore: null, commandTool: null, approvalService: null);
         Assert.Equal(6, minimalRouter.GetToolDefinitions().Count());
         var unavailableFind = await minimalRouter.ExecuteToolAsync(new ToolCall("c1", "find_files", "{}"));
         Assert.Contains("現在利用できません", unavailableFind.Content);
@@ -312,20 +370,22 @@ public class LocalToolsTests : IDisposable
         Assert.Contains("現在利用できません", unavailableGrep.Content);
         var unavailableMem = await minimalRouter.ExecuteToolAsync(new ToolCall("c3", "save_memory", "{}"));
         Assert.Contains("現在利用できません", unavailableMem.Content);
+        var unavailableCmd = await minimalRouter.ExecuteToolAsync(new ToolCall("c3b", "execute_command", "{\"command\":\"echo hi\"}"));
+        Assert.Contains("現在利用できません", unavailableCmd.Content);
         var noApprovalServiceWrite = await minimalRouter.ExecuteToolAsync(
             new ToolCall("c4", "write_file", "{\"filePath\":\"NoApproval.txt\",\"content\":\"ok\"}"));
         Assert.Contains("[成功]", noApprovalServiceWrite.Content);
 
-        // 3. 拒否(Reject)および1回のみ許可(AllowOnce)時の検証 (write_file & replace_text)
+        // 3. 拒否(Reject)および1回のみ許可(AllowOnce)時の検証 (write_file, replace_text, execute_command)
         var allowOnceRouter = new ToolExecutionRouter(
-            readTool, writeTool, webSearch, workspace, searchTool, memoryStore,
+            readTool, writeTool, webSearch, workspace, searchTool, memoryStore, commandTool,
             new StubApprovalService(ToolApprovalDecision.AllowOnce));
         var allowOnceWrite = await allowOnceRouter.ExecuteToolAsync(
             new ToolCall("ao1", "write_file", "{\"filePath\":\"Once.txt\",\"content\":\"once\"}"));
         Assert.Contains("[成功]", allowOnceWrite.Content);
 
         var rejectRouter = new ToolExecutionRouter(
-            readTool, writeTool, webSearch, workspace, searchTool, memoryStore,
+            readTool, writeTool, webSearch, workspace, searchTool, memoryStore, commandTool,
             new StubApprovalService(ToolApprovalDecision.Reject));
 
         var rejectedWrite = await rejectRouter.ExecuteToolAsync(
@@ -336,12 +396,16 @@ public class LocalToolsTests : IDisposable
             new ToolCall("cr1", "replace_text", "{\"filePath\":\"Blocked.txt\",\"oldString\":\"a\",\"newString\":\"b\"}"));
         Assert.Contains("[キャンセル]", rejectedReplace.Content);
 
-        // 4. セッション中常時許可(AllowAlwaysInSession)および全9ツールの実行検証
+        var rejectedCmd = await rejectRouter.ExecuteToolAsync(
+            new ToolCall("cc1", "execute_command", "{\"command\":\"echo blocked\"}"));
+        Assert.Contains("[キャンセル]", rejectedCmd.Content);
+
+        // 4. セッション中常時許可(AllowAlwaysInSession)および全10ツールの実行検証
         var sessionApproveRouter = new ToolExecutionRouter(
-            readTool, writeTool, webSearch, workspace, searchTool, memoryStore,
+            readTool, writeTool, webSearch, workspace, searchTool, memoryStore, commandTool,
             new StubApprovalService(ToolApprovalDecision.AllowAlwaysInSession));
 
-        Assert.Equal(9, sessionApproveRouter.GetToolDefinitions().Count());
+        Assert.Equal(10, sessionApproveRouter.GetToolDefinitions().Count());
 
         var wRes = await sessionApproveRouter.ExecuteToolAsync(
             new ToolCall("1", "write_file", "{\"filePath\":\"RouterTest.txt\",\"content\":\"hello world\"}"));
@@ -349,7 +413,7 @@ public class LocalToolsTests : IDisposable
 
         // replace_text 単体でも AllowAlwaysInSession 分岐を通過させる
         var replaceSessionApproveRouter = new ToolExecutionRouter(
-            readTool, writeTool, webSearch, workspace, searchTool, memoryStore,
+            readTool, writeTool, webSearch, workspace, searchTool, memoryStore, commandTool,
             new StubApprovalService(ToolApprovalDecision.AllowAlwaysInSession));
         var repRes = await replaceSessionApproveRouter.ExecuteToolAsync(
             new ToolCall("2", "replace_text", "{\"filePath\":\"RouterTest.txt\",\"oldString\":\"world\",\"newString\":\"kotli\"}"));
@@ -387,6 +451,10 @@ public class LocalToolsTests : IDisposable
         var memRes = await sessionApproveRouter.ExecuteToolAsync(
             new ToolCall("9", "save_memory", "{\"key\":\"coding_style\",\"content\":\"use Japanese test names\"}"));
         Assert.Contains("[成功]", memRes.Content);
+
+        var cmdRes = await sessionApproveRouter.ExecuteToolAsync(
+            new ToolCall("9b", "execute_command", "{\"command\":\"echo router_cmd_ok\"}"));
+        Assert.Contains("router_cmd_ok", cmdRes.Content);
 
         // 5. 不明なツール名および不正JSONによる例外キャッチ分岐の検証
         var unknownRes = await sessionApproveRouter.ExecuteToolAsync(

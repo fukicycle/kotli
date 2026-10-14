@@ -13,10 +13,21 @@ public class MarkdownMemoryStore : IMemoryStore
 {
     private readonly string _filePath;
 
-    public MarkdownMemoryStore(string? basePath = null)
+    public string SessionId { get; }
+    public string FilePath => _filePath;
+
+    public MarkdownMemoryStore(string? sessionId = null, string? kotliRootPath = null)
     {
-        var dir = basePath ?? Path.Combine(Directory.GetCurrentDirectory(), ".kotli");
-        _filePath = Path.Combine(dir, "MEMORY.md");
+        SessionId = string.IsNullOrWhiteSpace(sessionId)
+            ? Guid.NewGuid().ToString("N")
+            : sessionId.Trim();
+
+        var rootDir = string.IsNullOrWhiteSpace(kotliRootPath)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".kotli")
+            : kotliRootPath;
+
+        var sessionDir = Path.Combine(rootDir, SessionId);
+        _filePath = Path.Combine(sessionDir, "MEMORY.md");
     }
 
     public async Task<IEnumerable<MemoryItem>> LoadAllAsync()
@@ -60,7 +71,7 @@ public class MarkdownMemoryStore : IMemoryStore
         try
         {
             await SaveAsync(new MemoryItem(key.Trim(), content ?? "", DateTime.UtcNow));
-            return $"[成功] メモリ項目 '{key.Trim()}' を .kotli/MEMORY.md に保存しました。";
+            return $"[成功] メモリ項目 '{key.Trim()}' を ~/.kotli/{SessionId}/MEMORY.md に保存しました。";
         }
         catch (Exception ex)
         {

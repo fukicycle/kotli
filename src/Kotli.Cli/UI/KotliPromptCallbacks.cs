@@ -20,7 +20,7 @@ public class KotliPromptCallbacks : PromptCallbacks
         ("/help", "利用可能なコマンドと使い方を表示します"),
         ("/model", "使用するOllamaモデルを切り替えます"),
         ("/clear", "画面と現在の会話セッション履歴をクリアします"),
-        ("/memory", "保存されているプロジェクトの永続メモリ (.kotli/MEMORY.md) を表示・追加します"),
+        ("/memory", "保存されているセッションメモリ (~/.kotli/<セッションID>/MEMORY.md) を表示・追加します"),
         ("/diff", "現在のワークスペースの git diff を表示します"),
         ("/exit", "Kotli CLI を終了します")
     };

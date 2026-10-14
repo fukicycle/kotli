@@ -7,6 +7,6 @@ public class StubWebSearchTool : IWebSearchTool
 {
     public Task<string> SearchAsync(string query)
     {
-        return Task.FromResult($"[WebSearch] Search query '{query}' processed. (Note: Web search backend is not configured yet. This is a stub implementation.)");
+        return Task.FromResult($"[ウェブ検索] 検索クエリ '{query}' が処理されました。(注意: ウェブ検索バックエンドはまだ設定されていません。これはスタブ実装です。)");
     }
 }

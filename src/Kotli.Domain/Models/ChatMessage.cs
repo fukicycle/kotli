@@ -8,25 +8,52 @@ public record ChatMessage(
     IReadOnlyList<ToolCall>? ToolCalls = null,
     string? ToolCallId = null)
 {
-    // A simple approximation: 1 token is roughly 4 characters.
-    // This allows us to run token calculations with zero external dependency.
+    /// <summary>
+    /// 日本語（マルチバイト文字）とASCII文字の双方を考慮した軽量トークン数推計。
+    /// ASCII文字は約4文字で1トークン、非ASCII文字（日本語など）は1文字あたり1トークンとして計算します。
+    /// </summary>
+    public static int EstimateTokens(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        int asciiChars = 0;
+        int nonAsciiChars = 0;
+
+        foreach (char c in text)
+        {
+            if (c <= 127)
+            {
+                asciiChars++;
+            }
+            else
+            {
+                nonAsciiChars++;
+            }
+        }
+
+        return (asciiChars / 4) + nonAsciiChars;
+    }
+
     public int EstimatedTokens
     {
         get
         {
-            int length = (Content ?? "").Length;
+            int tokens = EstimateTokens(Content);
             if (ToolCalls != null)
             {
                 foreach (var tc in ToolCalls)
                 {
-                    length += tc.Name.Length + (tc.ArgumentsJson ?? "").Length;
+                    tokens += EstimateTokens(tc.Name) + EstimateTokens(tc.ArgumentsJson);
                 }
             }
             if (ToolCallId != null)
             {
-                length += ToolCallId.Length;
+                tokens += EstimateTokens(ToolCallId);
             }
-            return length / 4;
+            return tokens;
         }
     }
 }

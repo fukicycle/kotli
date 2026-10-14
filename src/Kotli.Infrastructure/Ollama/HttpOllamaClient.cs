@@ -127,7 +127,7 @@ public class HttpOllamaClient : IOllamaClient
         }
         catch (HttpRequestException ex)
         {
-            connectionError = $"\n[Error] Unable to connect to Ollama at {_baseUrl}. Is Ollama running locally? ({ex.Message})\n";
+            connectionError = $"\n[エラー] {_baseUrl} の Ollama に接続できません。Ollama はローカルで起動していますか？ ({ex.Message})\n";
         }
 
         if (connectionError != null)
@@ -136,13 +136,11 @@ public class HttpOllamaClient : IOllamaClient
             yield break;
         }
 
-        if (response == null || !response.IsSuccessStatusCode)
+        if (!response!.IsSuccessStatusCode)
         {
-            var errContent = response != null 
-                ? await response.Content.ReadAsStringAsync(cancellationToken) 
-                : "No response received";
+            var errContent = await response.Content.ReadAsStringAsync(cancellationToken);
             yield return new OllamaResponseChunk(
-                DeltaText: $"\n[Error] Ollama returned status code {(response != null ? response.StatusCode : "N/A")}: {errContent}\n",
+                DeltaText: $"\n[エラー] Ollama がステータスコード {response.StatusCode} を返しました: {errContent}\n",
                 ToolCalls: null,
                 Done: true);
             yield break;
@@ -190,9 +188,52 @@ public class HttpOllamaClient : IOllamaClient
                 EvalCount: chunkDto.eval_count);
         }
     }
+
+    public async Task<List<string>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    {
+        var requestUrl = $"{_baseUrl}/api/tags";
+        try
+        {
+            using var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var tagsResponse = JsonSerializer.Deserialize<OllamaTagsResponse>(content);
+                if (tagsResponse?.models != null)
+                {
+                    var names = new List<string>();
+                    foreach (var m in tagsResponse.models)
+                    {
+                        if (!string.IsNullOrEmpty(m.name))
+                        {
+                            names.Add(m.name);
+                        }
+                    }
+                    return names;
+                }
+            }
+        }
+        catch
+        {
+            // Fall back silently
+        }
+
+        // Default models fallback
+        return new List<string> { "gemma4:26b", "llama3:latest", "mistral:latest" };
+    }
 }
 
 #region DTOs
+internal class OllamaTagsResponse
+{
+    public List<OllamaTagModelDto>? models { get; set; }
+}
+
+internal class OllamaTagModelDto
+{
+    public string name { get; set; } = "";
+}
+
 internal class OllamaChatRequest
 {
     public string model { get; set; } = "";

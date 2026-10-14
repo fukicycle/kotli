@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Kotli.Domain.Interfaces;
@@ -12,6 +11,7 @@ namespace Kotli.Infrastructure.Workspace;
 
 public class GitDiffProvider : IWorkspaceProvider
 {
+    private static readonly char[] ModifiedStatusChars = { 'M', 'R', 'A', 'D' };
     private readonly string _workingDirectory;
 
     public GitDiffProvider(string? workingDirectory = null)
@@ -21,51 +21,48 @@ public class GitDiffProvider : IWorkspaceProvider
 
     public async Task<WorkspaceState> GetCurrentStateAsync()
     {
-        try
+        var isGit = await RunGitCommandAsync("rev-parse --is-inside-work-tree");
+        if (string.IsNullOrWhiteSpace(isGit) || !isGit.Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
         {
-            var isGit = await RunGitCommandAsync("rev-parse --is-inside-work-tree");
-            if (string.IsNullOrWhiteSpace(isGit) || !isGit.Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
-            {
-                return new WorkspaceState("non-git", "", Array.Empty<string>(), Array.Empty<string>());
-            }
-
-            var branchTask = RunGitCommandAsync("rev-parse --abbrev-ref HEAD");
-            var diffTask = RunGitCommandAsync("diff HEAD");
-            var statusTask = RunGitCommandAsync("status --porcelain");
-
-            await Task.WhenAll(branchTask, diffTask, statusTask);
-
-            var branch = (await branchTask).Trim();
-            var diff = await diffTask;
-            var statusLines = (await statusTask)
-                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-            var modified = new List<string>();
-            var untracked = new List<string>();
-
-            foreach (var line in statusLines)
-            {
-                if (line.Length < 4) continue;
-                var statusCode = line[..2];
-                var file = line[3..].Trim();
-
-                if (statusCode.Contains('M') || statusCode.Contains('R'))
-                {
-                    modified.Add(file);
-                }
-                else if (statusCode.Contains('?'))
-                {
-                    untracked.Add(file);
-                }
-            }
-
-            return new WorkspaceState(branch, diff, modified, untracked);
+            return new WorkspaceState("non-git", "", Array.Empty<string>(), Array.Empty<string>());
         }
-        catch
+
+        // Only run lightweight branch and status commands every turn; full diff is fetched lazily via GetGitDiffAsync()
+        var branchTask = RunGitCommandAsync("rev-parse --abbrev-ref HEAD");
+        var statusTask = RunGitCommandAsync("status --porcelain");
+
+        await Task.WhenAll(branchTask, statusTask);
+
+        var branch = (await branchTask).Trim();
+        var statusLines = (await statusTask)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+        var modified = new List<string>();
+        var untracked = new List<string>();
+
+        foreach (var line in statusLines)
         {
-            // Fallback for non-git folders or failure
-            return new WorkspaceState("unknown", "", Array.Empty<string>(), Array.Empty<string>());
+            if (line.Length < 4) continue;
+            var statusCode = line[..2];
+            var file = line[3..].Trim();
+
+            if (statusCode.Contains('?'))
+            {
+                untracked.Add(file);
+            }
+            else if (statusCode.IndexOfAny(ModifiedStatusChars) >= 0)
+            {
+                modified.Add(file);
+            }
         }
+
+        return new WorkspaceState(branch, "", modified, untracked);
+    }
+
+    public async Task<string> GetGitDiffAsync()
+    {
+        var diff = await RunGitCommandAsync("diff HEAD");
+        return !string.IsNullOrWhiteSpace(diff) ? diff : "変更はありません。";
     }
 
     private async Task<string> RunGitCommandAsync(string arguments)
@@ -84,7 +81,7 @@ public class GitDiffProvider : IWorkspaceProvider
         };
 
         using var process = new Process { StartInfo = startInfo };
-        
+
         try
         {
             process.Start();

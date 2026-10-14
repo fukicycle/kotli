@@ -28,4 +28,18 @@ public class ChatSession
         _messages.Clear();
         _messages.AddRange(messages);
     }
+
+    public void CompactToolMessages(int maxCharsThreshold = 500)
+    {
+        for (int i = 0; i < _messages.Count; i++)
+        {
+            var msg = _messages[i];
+            if (msg.Role == "tool" && msg.Content != null && msg.Content.Length > maxCharsThreshold)
+            {
+                int originalLength = msg.Content.Length;
+                string stubText = $"... (元の内容は {originalLength} 文字ありました) ... [コンテキスト節約のため内容はスタブ化されました。AIはすでに内容を読み込んで回答済みです]";
+                _messages[i] = msg with { Content = stubText };
+            }
+        }
+    }
 }

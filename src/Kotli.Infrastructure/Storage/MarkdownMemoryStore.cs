@@ -40,14 +40,32 @@ public class MarkdownMemoryStore : IMemoryStore
     public async Task SaveAsync(MemoryItem memoryItem)
     {
         var items = (await LoadAllAsync()).ToList();
-        
+
         // Remove existing item with the same key
         items.RemoveAll(i => i.Key.Equals(memoryItem.Key, StringComparison.OrdinalIgnoreCase));
-        
+
         // Add new item
         items.Add(memoryItem with { UpdatedAt = DateTime.UtcNow });
 
         await WriteAllAsync(items);
+    }
+
+    public async Task<string> SaveMemoryToolAsync(string key, string content)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return "[エラー] メモリのキー名が指定されていません。";
+        }
+
+        try
+        {
+            await SaveAsync(new MemoryItem(key.Trim(), content ?? "", DateTime.UtcNow));
+            return $"[成功] メモリ項目 '{key.Trim()}' を .kotli/MEMORY.md に保存しました。";
+        }
+        catch (Exception ex)
+        {
+            return $"[エラー] メモリの保存に失敗しました: {ex.Message}";
+        }
     }
 
     public async Task DeleteAsync(string key)
@@ -64,17 +82,13 @@ public class MarkdownMemoryStore : IMemoryStore
 
     private async Task WriteAllAsync(IEnumerable<MemoryItem> items)
     {
-        var dir = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
+        Directory.CreateDirectory(Path.GetDirectoryName(_filePath)!);
 
         var sb = new StringBuilder();
-        sb.AppendLine("# Kotli Memory");
+        sb.AppendLine("# Kotli メモリ");
         sb.AppendLine();
-        sb.AppendLine("This file stores persistent project-specific memory context for Kotli.");
-        sb.AppendLine("Feel free to edit this file manually. Use '## Key' as headers for memory entries.");
+        sb.AppendLine("このファイルは、Kotli用のプロジェクト固有の永続的なメモリコンテキストを保存します。");
+        sb.AppendLine("このファイルは手動で編集して構いません。メモリのエントリの見出しには '## キー名' を使用してください。");
         sb.AppendLine();
 
         foreach (var item in items)

@@ -26,8 +26,14 @@ public class LocalToolsTests : IDisposable
     {
         if (Directory.Exists(_tempWorkspace))
         {
-            // Restore permissions before deleting if any test changed UnixFileMode
-            foreach (var entry in Directory.EnumerateFileSystemEntries(_tempWorkspace, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
+            // Restore permissions before deleting if any test changed UnixFileMode or ReadOnly attributes (including hidden .git directory)
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.None
+            };
+            foreach (var entry in Directory.EnumerateFileSystemEntries(_tempWorkspace, "*", options))
             {
                 try
                 {

@@ -30,7 +30,13 @@ public class InfrastructureServicesTests : IDisposable
     {
         if (Directory.Exists(_tempDir))
         {
-            foreach (var entry in Directory.EnumerateFileSystemEntries(_tempDir, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.None
+            };
+            foreach (var entry in Directory.EnumerateFileSystemEntries(_tempDir, "*", options))
             {
                 try
                 {

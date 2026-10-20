@@ -9,20 +9,28 @@
 
 ---
 
-### 1. インストール (`install.sh`)
+### 1. インストール (`install.sh` / `install.ps1`)
 
-Linux (`x64` / `arm64`)、macOS (`x64` / `arm64`)、Windows Git Bash / MSYS2 / WSL (`x64` / `arm64`) に対応しています。
+以下の全OS・アーキテクチャに対応しています:
+- **macOS**: Apple Silicon (`osx-arm64`) / Intel (`osx-x64`)
+- **Linux**: x86_64 (`linux-x64`) / ARM64 (`linux-arm64`)
+- **Windows**: x64 (`win-x64`) / ARM64 (`win-arm64`) — PowerShell (`install.ps1`) および Git Bash / MSYS2 / WSL (`install.sh`)
 
-#### ワンライナーインストール（GitHub Releases から自動取得）
+#### A. macOS / Linux / Windows (Git Bash・WSL) — `install.sh`
 
+##### ワンライナーインストール
 ```bash
+# 最新リリースを自動インストール（未リリース時は自動的にソースビルドへフォールバック）
 curl -fsSL https://raw.githubusercontent.com/fukicycle/kotli/main/install.sh | bash
+
+# オプションを渡す場合（例: バージョン指定・ソースビルド強制）
+curl -fsSL https://raw.githubusercontent.com/fukicycle/kotli/main/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/fukicycle/kotli/main/install.sh | bash -s -- --from-source
 ```
 
-#### クローンしたリポジトリからインストール
-
+##### クローンしたリポジトリから実行
 ```bash
-# 最新リリースバイナリをダウンロードしてインストール（未リリース時は自動的にソースビルドへフォールバック）
+# 最新リリースバイナリをダウンロードしてインストール
 ./install.sh
 
 # ローカルのソースコードからシングルファイルバイナリをビルドしてインストール (.NET 10.0 SDK が必要)
@@ -35,12 +43,12 @@ curl -fsSL https://raw.githubusercontent.com/fukicycle/kotli/main/install.sh | b
 ./install.sh --uninstall
 ```
 
-| オプション | 説明 |
+| オプション (`install.sh`) | 説明 |
 | :--- | :--- |
 | `-v, --version <tag>` | インストールするバージョンを指定（デフォルト: `latest`） |
 | `-d, --install-dir <path>` | インストール先ディレクトリを指定（デフォルト: `~/.local/bin`、root 実行時は `/usr/local/bin`） |
 | `-r, --rid <rid>` | ターゲット RID を明示指定 (`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`, `win-arm64`) |
-| `-s, --from-source` | ローカルのソースコードから `dotnet publish` でビルドしてインストール |
+| `-s, --from-source` | ソースコードから `dotnet publish` でビルドしてインストール |
 | `-u, --uninstall` | インストール済みの `kotli` バイナリを削除 |
 | `-h, --help` | ヘルプを表示 |
 
@@ -49,6 +57,45 @@ curl -fsSL https://raw.githubusercontent.com/fukicycle/kotli/main/install.sh | b
 > ```bash
 > export PATH="$HOME/.local/bin:$PATH"
 > ```
+
+---
+
+#### B. Windows (PowerShell) — `install.ps1`
+
+##### ワンライナーインストール
+```powershell
+# 最新リリースを自動インストール（ユーザー環境変数 PATH への自動登録付き）
+irm https://raw.githubusercontent.com/fukicycle/kotli/main/install.ps1 | iex
+
+# オプションを指定してワンライナー実行する場合（例: バージョン指定・ソースビルド・アンインストール）
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/fukicycle/kotli/main/install.ps1))) -Version v0.1.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/fukicycle/kotli/main/install.ps1))) -FromSource
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/fukicycle/kotli/main/install.ps1))) -Uninstall
+```
+
+##### クローンしたリポジトリから実行
+```powershell
+# 最新リリースバイナリをダウンロードしてインストール
+.\install.ps1
+
+# ローカルのソースコードからシングルファイルバイナリをビルドしてインストール (.NET 10.0 SDK が必要)
+.\install.ps1 -FromSource
+
+# バージョン・インストール先・ターゲットRIDを指定する場合
+.\install.ps1 -Version v0.1.0 -InstallDir "$HOME\.local\bin" -Rid win-x64
+
+# アンインストール
+.\install.ps1 -Uninstall
+```
+
+| パラメータ (`install.ps1`) | 説明 |
+| :--- | :--- |
+| `-Version <tag>` | インストールするバージョンを指定（デフォルト: `latest`） |
+| `-InstallDir <path>` | インストール先ディレクトリを指定（デフォルト: `%LOCALAPPDATA%\Programs\kotli\bin`） |
+| `-Rid <rid>` | ターゲット RID を明示指定 (`win-x64`, `win-arm64`) |
+| `-FromSource` | ソースコードから `dotnet publish` でビルドしてインストール |
+| `-Uninstall` | インストール済みの `kotli.exe` を削除 |
+| `-Help` | ヘルプを表示 |
 
 ---
 

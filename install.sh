@@ -9,8 +9,8 @@ KOTLI_REPO="${KOTLI_REPO:-fukicycle/kotli}"
 KOTLI_VERSION="${KOTLI_VERSION:-latest}"
 KOTLI_INSTALL_DIR="${KOTLI_INSTALL_DIR:-}"
 KOTLI_RID="${KOTLI_RID:-}"
-FROM_SOURCE=false
-UNINSTALL=false
+FROM_SOURCE="${KOTLI_FROM_SOURCE:-false}"
+UNINSTALL="${KOTLI_UNINSTALL:-false}"
 TMP_WORK_DIR=""
 
 cleanup() {
@@ -44,17 +44,18 @@ err()   { printf "%s[ERROR]%s %s\n" "${RED}" "${RESET}" "$*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-${BOLD}Kotli Installer${RESET}
+${BOLD}Kotli Installer (Linux / macOS / Windows Git Bash & WSL)${RESET}
 
 Usage:
   ./install.sh [options]
   curl -fsSL https://raw.githubusercontent.com/${KOTLI_REPO}/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/${KOTLI_REPO}/main/install.sh | bash -s -- [options]
 
 Options:
   -v, --version <tag>       インストールするバージョンを指定 (例: v0.1.0, デフォルト: latest)
   -d, --install-dir <path>  インストール先ディレクトリを指定 (デフォルト: ~/.local/bin または /usr/local/bin)
   -r, --rid <rid>           ターゲットRIDを明示指定 (linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64)
-  -s, --from-source         ローカルのソースコードから dotnet publish でビルドしてインストール
+  -s, --from-source         ソースコードから dotnet publish でビルドしてインストール
   -u, --uninstall           インストール済みの kotli バイナリをアンインストール
   -h, --help                このヘルプを表示
 EOF
@@ -118,6 +119,14 @@ detect_platform() {
     case "${uname_m}" in
         x86_64|amd64|x64)
             arch="x64"
+            # macOS Rosetta 2 上で実行されている場合でも Apple Silicon なら arm64 を選択
+            if [[ "${os}" == "osx" ]] && [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
+                arch="arm64"
+            fi
+            # Windows Git Bash (x64 エミュレーション) 上でもネイティブが ARM64 なら arm64 を選択
+            if [[ "${os}" == "win" ]] && [[ "${PROCESSOR_ARCHITEW6432:-${PROCESSOR_ARCHITECTURE:-}}" == "ARM64" ]]; then
+                arch="arm64"
+            fi
             ;;
         aarch64|arm64|armv8*)
             arch="arm64"
@@ -164,7 +173,7 @@ verify_checksum() {
     fi
 
     local expected
-    expected="$(grep " ${archive_name}\$" "${checksums_path}" | awk '{print $1}' || true)"
+    expected="$(grep -E "[[:space:]]\*?${archive_name}\$" "${checksums_path}" | awk '{print $1}' | head -n1 || true)"
     if [[ -z "${expected}" ]]; then
         warn "checksums.txt 内に ${archive_name} のエントリが見つかりませんでした。検証をスキップします。"
         return 0
@@ -207,32 +216,71 @@ resolve_latest_tag() {
         response="$(wget -qO- "${api_url}" 2>/dev/null || true)"
     fi
 
-    if [[ -z "${response}" ]]; then
-        echo ""
+    local tag=""
+    if [[ -n "${response}" ]]; then
+        tag="$(echo "${response}" | grep -Eo '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n1 | sed -E 's/.*"([^"]+)"/\1/' || true)"
+    fi
+
+    # GitHub API レート制限時などのフォールバック: Web リダイレクト URL からタグ名を取得
+    if [[ -z "${tag}" ]] && command -v curl >/dev/null 2>&1; then
+        local redirect_url
+        redirect_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${KOTLI_REPO}/releases/latest" 2>/dev/null || true)"
+        if [[ "${redirect_url}" == *"/releases/tag/"* ]]; then
+            tag="${redirect_url##*/releases/tag/}"
+            tag="${tag%%/*}"
+        fi
+    fi
+
+    echo "${tag}"
+}
+
+resolve_local_csproj() {
+    if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+        local script_dir
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+        if [[ -n "${script_dir}" && -f "${script_dir}/src/Kotli.Cli/Kotli.Cli.csproj" ]]; then
+            echo "${script_dir}/src/Kotli.Cli/Kotli.Cli.csproj"
+            return
+        fi
+    fi
+
+    if [[ -f "${PWD}/src/Kotli.Cli/Kotli.Cli.csproj" ]]; then
+        echo "${PWD}/src/Kotli.Cli/Kotli.Cli.csproj"
         return
     fi
 
-    echo "${response}" | grep -Eo '"tag_name"\s*:\s*"[^"]+"' | head -n1 | sed -E 's/.*"([^"]+)"/\1/'
+    echo ""
 }
 
 install_from_source() {
     local rid="$1"
     local install_dir="$2"
     local bin_name="$3"
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
-
-    local csproj="${script_dir}/src/Kotli.Cli/Kotli.Cli.csproj"
-    if [[ ! -f "${csproj}" ]]; then
-        err "ローカルのソースプロジェクトが見つかりません: ${csproj}"
-    fi
 
     if ! command -v dotnet >/dev/null 2>&1; then
         err ".NET SDK (dotnet) が見つかりません。ソースからビルドするには .NET 10.0 SDK をインストールしてください。"
     fi
 
-    info "ローカルソースから ${rid} 向けにシングルファイルバイナリをビルドしています..."
     TMP_WORK_DIR="$(mktemp -d)"
+    local csproj
+    csproj="$(resolve_local_csproj)"
+
+    if [[ -z "${csproj}" ]]; then
+        if ! command -v git >/dev/null 2>&1; then
+            err "ローカルのソースが見つからず、git もインストールされていません。"
+        fi
+        info "GitHub (${KOTLI_REPO}) からソースコードを取得しています..."
+        local clone_dir="${TMP_WORK_DIR}/repo"
+        if [[ "${KOTLI_VERSION}" != "latest" ]]; then
+            git clone --depth 1 --branch "${KOTLI_VERSION}" "https://github.com/${KOTLI_REPO}.git" "${clone_dir}"
+        else
+            git clone --depth 1 "https://github.com/${KOTLI_REPO}.git" "${clone_dir}"
+        fi
+        csproj="${clone_dir}/src/Kotli.Cli/Kotli.Cli.csproj"
+    fi
+
+    local publish_dir="${TMP_WORK_DIR}/publish"
+    info "ソースコードから ${rid} 向けにシングルファイルバイナリをビルドしています..."
 
     dotnet publish "${csproj}" \
         --configuration Release \
@@ -242,10 +290,10 @@ install_from_source() {
         -p:IncludeNativeLibrariesForSelfExtract=true \
         -p:DebugType=None \
         -p:DebugSymbols=false \
-        --output "${TMP_WORK_DIR}"
+        --output "${publish_dir}"
 
     mkdir -p "${install_dir}"
-    cp "${TMP_WORK_DIR}/${bin_name}" "${install_dir}/${bin_name}"
+    cp "${publish_dir}/${bin_name}" "${install_dir}/${bin_name}"
     chmod +x "${install_dir}/${bin_name}" || true
 
     if [[ "${rid}" == osx-* ]] && command -v xattr >/dev/null 2>&1; then
@@ -263,14 +311,12 @@ install_from_release() {
         info "GitHub Releases (${KOTLI_REPO}) から最新バージョンを確認しています..."
         tag="$(resolve_latest_tag)"
         if [[ -z "${tag}" ]]; then
-            local script_dir
-            script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || pwd)"
-            if [[ -f "${script_dir}/src/Kotli.Cli/Kotli.Cli.csproj" ]] && command -v dotnet >/dev/null 2>&1; then
-                warn "GitHub Release が見つかりませんでした。ローカルソースからのビルド (--from-source) にフォールバックします。"
+            if command -v dotnet >/dev/null 2>&1 && { [[ -n "$(resolve_local_csproj)" ]] || command -v git >/dev/null 2>&1; }; then
+                warn "公開済みの GitHub Release が見つかりませんでした。ソースからのビルド (--from-source) に自動フォールバックします。"
                 install_from_source "${rid}" "${install_dir}" "${bin_name}"
                 return
             fi
-            err "GitHub Releases から最新バージョンを取得できませんでした。ローカルからビルドする場合は --from-source を指定してください。"
+            err "GitHub Releases から最新バージョンを取得できませんでした。ローカルからビルドする場合は .NET 10.0 SDK を導入の上 --from-source を指定してください。"
         fi
     fi
 
@@ -320,7 +366,7 @@ main() {
     bin_name="$(binary_name_for_rid "${rid}")"
     local target_path="${install_dir}/${bin_name}"
 
-    if [[ "${UNINSTALL}" == "true" ]]; then
+    if [[ "${UNINSTALL}" == "true" || "${UNINSTALL}" == "1" ]]; then
         if [[ -f "${target_path}" ]]; then
             rm -f "${target_path}"
             ok "Kotli をアンインストールしました: ${target_path}"
@@ -333,7 +379,7 @@ main() {
     info "ターゲットプラットフォーム: ${BOLD}${rid}${RESET}"
     info "インストール先: ${BOLD}${target_path}${RESET}"
 
-    if [[ "${FROM_SOURCE}" == "true" ]]; then
+    if [[ "${FROM_SOURCE}" == "true" || "${FROM_SOURCE}" == "1" ]]; then
         install_from_source "${rid}" "${install_dir}" "${bin_name}"
     else
         install_from_release "${rid}" "${install_dir}" "${bin_name}"

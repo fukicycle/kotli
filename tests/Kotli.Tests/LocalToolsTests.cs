@@ -35,6 +35,7 @@ public class LocalToolsTests : IDisposable
                     {
                         File.SetUnixFileMode(entry, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                     }
+                    File.SetAttributes(entry, FileAttributes.Normal);
                 }
                 catch { }
             }
@@ -290,8 +291,10 @@ public class LocalToolsTests : IDisposable
     [Fact]
     public async Task コマンド実行ツールが標準出力とエラー出力およびタイムアウトやディレクトリ制限を正しく処理すること()
     {
-        // デフォルトコンストラクタのカバレッジ確認
+        // デフォルトコンストラクタおよびOS別シェル選択分岐のカバレッジ確認
         _ = new LocalCommandTool();
+        _ = new LocalCommandTool(_tempWorkspace, isWindows: true);
+        _ = new LocalCommandTool(_tempWorkspace, isWindows: false);
 
         var cmdTool = new LocalCommandTool(_tempWorkspace, TimeSpan.FromSeconds(5), maxOutputChars: 50);
         var subDir = Path.Combine(_tempWorkspace, "sub");

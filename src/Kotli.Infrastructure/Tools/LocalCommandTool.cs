@@ -22,15 +22,17 @@ public class LocalCommandTool : ICommandTool
         TimeSpan? timeout = null,
         int maxOutputChars = 8000,
         string? shellExecutable = null,
-        string? shellSwitch = null)
+        string? shellSwitch = null,
+        bool? isWindows = null)
     {
         _basePath = Path.GetFullPath(basePath ?? Directory.GetCurrentDirectory())
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         _basePathWithSeparator = _basePath + Path.DirectorySeparatorChar;
         _timeout = timeout ?? TimeSpan.FromSeconds(60);
         _maxOutputChars = maxOutputChars;
-        _shellExecutable = shellExecutable ?? "/bin/sh";
-        _shellSwitch = shellSwitch ?? "-c";
+        bool useWindowsShell = isWindows ?? OperatingSystem.IsWindows();
+        _shellExecutable = shellExecutable ?? (useWindowsShell ? "cmd.exe" : "/bin/sh");
+        _shellSwitch = shellSwitch ?? (useWindowsShell ? "/c" : "-c");
     }
 
     private bool IsWithinWorkspace(string fullPath)

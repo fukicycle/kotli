@@ -98,14 +98,14 @@ public class LocalReadTool : IReadTool
             var directories = Directory.GetDirectories(fullPath);
             foreach (var dir in directories)
             {
-                var relativeName = Path.GetRelativePath(_basePath, dir);
+                var relativeName = Path.GetRelativePath(_basePath, dir).Replace('\\', '/');
                 sb.AppendLine($"[ディレクトリ]  {relativeName}/");
             }
 
             var files = Directory.GetFiles(fullPath);
             foreach (var file in files)
             {
-                var relativeName = Path.GetRelativePath(_basePath, file);
+                var relativeName = Path.GetRelativePath(_basePath, file).Replace('\\', '/');
                 var size = new FileInfo(file).Length;
                 sb.AppendLine($"[ファイル] {relativeName} ({size} バイト)");
             }

@@ -38,6 +38,7 @@ public class InfrastructureServicesTests : IDisposable
                     {
                         File.SetUnixFileMode(entry, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                     }
+                    File.SetAttributes(entry, FileAttributes.Normal);
                 }
                 catch { }
             }
